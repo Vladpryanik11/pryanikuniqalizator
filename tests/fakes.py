@@ -96,6 +96,10 @@ class FakeBot:
             raise self.member_error
         return SimpleNamespace(status=self.member_status, is_member=self.member_is_member)
 
+    async def set_my_commands(self, commands, **kwargs):
+        self._record("set_my_commands", commands=commands, **kwargs)
+        return True
+
     async def get_file(self, file_id):
         self._record("get_file", file_id=file_id)
         return SimpleNamespace(file_path=self.file_path)
@@ -145,6 +149,7 @@ _API_METHODS = {
     "answerCallbackQuery": "answer_callback_query",
     "getChatMember": "get_chat_member",
     "getFile": "get_file",
+    "setMyCommands": "set_my_commands",
 }
 
 
@@ -154,13 +159,14 @@ class FakeSession(BaseSession):
     def __init__(self, fake: FakeBot) -> None:
         super().__init__()
         self.fake = fake
+        self.closed = False
 
     async def make_request(self, bot, method, timeout=None):
         handler = getattr(self.fake, _API_METHODS[method.__api_method__])
         return await handler(**method.model_dump(exclude_none=True))
 
     async def close(self) -> None:
-        pass
+        self.closed = True
 
     async def stream_content(self, *args, **kwargs):
         raise NotImplementedError

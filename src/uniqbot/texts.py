@@ -26,6 +26,10 @@ PRIVACY = ("Бот хранит твой Telegram ID, имя, @username, язы�
            "пускать подписчиков, считать статистику и присылать новости бота. Видео удаляются сразу после "
            "обработки.")
 
+# the bot's command menu
+CMD_START = "Начать"
+CMD_PRIVACY = "Какие данные хранит бот"
+
 # for the admins: the subscription cannot be checked (the bot is probably not an admin of the channel)
 SUB_CHECK_ALERT = "Не получается проверить подписку на канал: {error}. Бот должен быть админом канала."
 
