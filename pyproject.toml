@@ -1,0 +1,32 @@
+[build-system]
+requires = ["hatchling>=1.24"]
+build-backend = "hatchling.build"
+
+[project]
+name = "uniqbot"
+version = "0.1.0"
+description = "Telegram bot that uniquifies subscribers' videos with video-uniquifier"
+requires-python = ">=3.12"
+dependencies = [
+  "aiogram>=3.31,<4",
+  "sqlalchemy[asyncio]>=2.0.30",
+  "aiosqlite>=0.20",
+  "pydantic-settings>=2.4",
+  "pyyaml>=6.0",
+  "video-uniquifier @ git+https://github.com/Hostlife22/video-uniquifier@e9138ddbc798cb23e28b44d9edf7959a712f0add",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "pytest-asyncio>=0.24"]
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/uniqbot"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+markers = ["engine: runs ffmpeg and video-uniquifier"]

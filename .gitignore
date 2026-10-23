@@ -1,0 +1,13 @@
+# secrets
+.env
+scripts/server.env
+
+# runtime data: sqlite, work dirs
+data/
+
+# python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+*.egg-info/

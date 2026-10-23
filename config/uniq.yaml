@@ -1,0 +1,9 @@
+# Диапазоны профиля заказа, спека §4; основа — instagram_reels.yaml движка video-uniquifier (MIT, см. NOTICE)
+crop_max_strength: 0.10
+brightness: {low: -0.02, high: 0.02}
+contrast:   {low: 1.01, high: 1.04}
+gamma:      {low: 0.98, high: 1.02}
+saturation: {low: 0.97, high: 1.06}
+noise: [4, 5]
+rates: [0.96, 0.97, 1.03, 1.04]
+max_output_sec: 180
