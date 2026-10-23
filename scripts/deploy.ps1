@@ -22,7 +22,8 @@ try {
         "echo $commit > app.new/REVISION"
     )
     # The full suite in the Linux image, before anything is replaced: a failing build stops the deploy here
-    if ($Test) { $steps += "docker build --target test -t uniqbot:test app.new" }
+    # (its image is removed right away: the server is shared and the next build uses the layer cache, not this image)
+    if ($Test) { $steps += @("docker build --target test -t uniqbot:test app.new", "docker image rm uniqbot:test || true") }
     $steps += @(
         "rm -rf app.old",
         "if [ -d app ]; then mv app app.old; fi",
@@ -32,8 +33,9 @@ try {
         "docker inspect --type container -f '{{.Id}} {{.RestartCount}}' uniqbot > $dir/restarts.before 2>/dev/null || echo 'none 0' > $dir/restarts.before",
         "docker compose up -d --build --remove-orphans",
         "docker compose ps",
-        "docker image prune -f || true",
-        "docker builder prune -f --filter until=168h || true"
+        # Only the images labelled in the Dockerfile: the host is shared with the reels bot, whose dangling images and
+        # build cache are not ours to prune, so nothing here touches the cache
+        "docker image prune -f --filter label=app=uniqbot || true"
     )
     $remoteCmd = $steps -join "; "
     Invoke-Remote $cfg $remoteCmd

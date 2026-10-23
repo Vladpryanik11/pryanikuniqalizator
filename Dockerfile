@@ -1,4 +1,6 @@
 FROM python:3.12-slim-trixie AS base
+# lets deploy.ps1 prune only our own dangling images on a shared host; the test and runtime stages inherit it
+LABEL app=uniqbot
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1 LANG=C.UTF-8 TZ=Europe/Moscow
 # git: the engine is installed from a pinned commit on GitHub. The build fails if Debian's ffmpeg lacks a filter or encoder the engine needs
 RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg git ca-certificates tzdata \

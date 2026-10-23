@@ -92,6 +92,16 @@ def test_deploy_checks_the_container_did_not_restart():
     assert "docker build --target test" in s and "app.new" in s and "docker compose logs --tail" in s
 
 
+def test_deploy_cleans_up_only_its_own_docker_state():
+    # the server is shared with the reels bot: no host-wide prune may run there
+    s = _read("scripts", "deploy.ps1")
+    assert "builder prune" not in s and "system prune" not in s and "volume prune" not in s
+    prunes = [line for line in s.splitlines() if "image prune" in line]
+    assert prunes and all("--filter label=app=uniqbot" in line for line in prunes)
+    assert "docker image rm uniqbot:test" in s  # the image of a -Test build is not left behind
+    assert "LABEL app=uniqbot" in _stage(_read("Dockerfile"), "base")  # test and runtime inherit it from base
+
+
 def test_scripts_use_uniqbot_settings_and_never_touch_the_reels_bot():
     example = _read("scripts", "server.env.example")
     assert "UNIQBOT_HOST=root@203.0.113.10" in example and "UNIQBOT_KEY=~/.ssh/reels_vps" in example
