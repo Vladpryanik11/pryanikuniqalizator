@@ -74,6 +74,20 @@ async def test_normalize_copies_a_plain_clip(clips, tmp_path):
     assert video_packet_sizes(dest) == video_packet_sizes(src)  # streams were copied, not re-encoded
 
 
+async def test_normalize_strips_tags_chapters_and_extra_audio(clips, tmp_path):
+    src, dest = clips["messy"], tmp_path / "clean.mkv"
+    before = ffprobe_json(src)  # the fixture really carries what has to go
+    assert before["chapters"] and "secret" in json.dumps(before["format"]["tags"])
+    assert [s["codec_type"] for s in before["streams"]].count("audio") == 2
+    await normalize(src, dest, await probe_source(src))
+    after = ffprobe_json(dest)
+    assert [s["codec_type"] for s in after["streams"]] == ["video", "audio"]
+    assert not after["chapters"]
+    # the muxer may add its own tags (ENCODER, DURATION); only ours must be gone
+    all_tags = [after["format"].get("tags", {}), *(s.get("tags", {}) for s in after["streams"])]
+    assert "secret" not in json.dumps(all_tags)
+
+
 async def test_normalize_keeps_a_silent_clip_silent(clips, tmp_path):
     src, dest = clips["silent"], tmp_path / "clean.mkv"
     await normalize(src, dest, await probe_source(src))
@@ -128,7 +142,7 @@ async def test_run_engine_failure_carries_stderr(clips, tmp_path):
     bad.write_text("name: x\ntransforms: [{id: video.nope}]\n", encoding="utf-8")
     with pytest.raises(EngineError) as e:
         await run_engine(clips["vertical"], bad, tmp_path / "o.mp4", tmp_path / "t", timeout=120)
-    assert str(e.value).strip()
+    assert "video.nope" in str(e.value)  # the engine's own stderr tail, not just our prefix
 
 
 async def test_run_engine_timeout_is_an_engine_error(clips, tmp_path):

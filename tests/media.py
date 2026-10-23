@@ -3,7 +3,7 @@
 import subprocess
 from pathlib import Path
 
-KINDS = ("vertical", "horizontal", "silent", "hlg", "rotated", "hlg_rotated", "mov_tmcd_pcm", "audio_only", "audio_cover")
+KINDS = ("vertical", "horizontal", "silent", "hlg", "rotated", "hlg_rotated", "mov_tmcd_pcm", "audio_only", "audio_cover", "messy")
 
 _VIDEO_H264 = ["-c:v", "libx264", "-pix_fmt", "yuv420p"]
 # ffmpeg 9 drops -color_trc/-color_primaries after the implicit pix_fmt conversion, so the frames are tagged by setparams
@@ -64,6 +64,23 @@ def make_clip(kind: str, dest_dir: Path) -> Path:
         _generate(None, [], aac, song)
         out = dest_dir / f"{kind}.m4a"
         _ffmpeg("-i", song, "-i", cover, "-map", 0, "-map", 1, "-c", "copy", "-disposition:v:0", "attached_pic", out)
+    elif kind == "messy":
+        # what a camera app leaves behind: global and stream tags, a chapter, a second audio track
+        meta = dest_dir / "messy_meta.txt"
+        meta.write_text(
+            ";FFMETADATA1\ntitle=secret-global-title\n"
+            "[CHAPTER]\nTIMEBASE=1/1000\nSTART=0\nEND=2000\ntitle=secret-chapter\n",
+            encoding="utf-8",
+        )
+        _ffmpeg(
+            "-f", "lavfi", "-i", "testsrc2=size=180x320:rate=25:duration=2",
+            "-f", "lavfi", "-i", "sine=frequency=440:duration=2",
+            "-f", "lavfi", "-i", "sine=frequency=880:duration=2",
+            "-i", meta,
+            "-map", "0:v", "-map", "1:a", "-map", "2:a", "-map_metadata", 3, "-map_chapters", 3,
+            "-metadata:s:v:0", "comment=secret-video-tag", "-metadata:s:a:0", "title=secret-audio-tag",
+            *_VIDEO_H264, *aac, out,
+        )
     else:
         raise ValueError(f"unknown clip kind: {kind}")
     return out
