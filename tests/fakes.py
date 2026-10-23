@@ -100,8 +100,8 @@ class FakeBot:
         self._record("set_my_commands", commands=commands, **kwargs)
         return True
 
-    async def get_file(self, file_id):
-        self._record("get_file", file_id=file_id)
+    async def get_file(self, file_id, **kwargs):
+        self._record("get_file", file_id=file_id, **kwargs)
         return SimpleNamespace(file_path=self.file_path)
 
     async def download(self, file, destination=None, **kwargs):

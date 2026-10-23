@@ -24,6 +24,9 @@ log = logging.getLogger(__name__)
 
 POLL_SEC = 30  # how long an idle worker waits for a wake-up before it looks at the queue anyway
 ERROR_PAUSE_SEC = 5  # after an unexpected error, so a broken database does not turn the loop into a spin
+# The local Bot API server downloads the file from Telegram before it answers getFile and uploads the result before it
+# answers sendDocument; aiogram's default of 60 s fails on a 150-200 MB video.
+LONG_REQUEST_SEC = 600
 _SUFFIX_RE = re.compile(r"\.[A-Za-z0-9]{1,8}")
 
 Renderer = Callable[..., Awaitable[RenderResult]]
@@ -39,7 +42,7 @@ class LocalFetcher:
     """Local Bot API server: getFile gives a path on the volume shared with it, so the file is moved, not downloaded."""
 
     async def fetch(self, bot: Bot, file_id: str, dest_dir: Path, suffix: str) -> Path:
-        file = await bot.get_file(file_id)
+        file = await bot.get_file(file_id, request_timeout=LONG_REQUEST_SEC)
         dest = dest_dir / f"input{suffix}"
         # the move can be a copy across volumes; keep it off the event loop
         await asyncio.to_thread(shutil.move, Path(file.file_path), dest)
@@ -51,7 +54,8 @@ class CloudFetcher:
 
     async def fetch(self, bot: Bot, file_id: str, dest_dir: Path, suffix: str) -> Path:
         dest = dest_dir / f"input{suffix}"
-        await bot.download(file_id, destination=dest)
+        # Bot.download has no request_timeout: its `timeout` bounds the whole download (getFile on the cloud is quick)
+        await bot.download(file_id, destination=dest, timeout=LONG_REQUEST_SEC)
         return dest
 
 
@@ -124,7 +128,9 @@ class Worker:
                 rng=self._rng_factory(),
             )
             document = FSInputFile(result.output, filename=f"uniq_{secrets.token_hex(4)}.mp4")
-            await self._bot.send_document(order.tg_id, document, caption=texts.DONE_CAPTION)
+            await self._bot.send_document(
+                order.tg_id, document, caption=texts.DONE_CAPTION, request_timeout=LONG_REQUEST_SEC
+            )
         except NotAVideo as e:
             await self._fail(order, texts.NOT_A_VIDEO, e, alert=False)
         except TooLong as e:

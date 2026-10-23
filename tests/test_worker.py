@@ -155,6 +155,8 @@ async def test_worker_processes_queue_in_order(env):
         sent = [kw for kw in env.bot.called("send_document") if kw["chat_id"] == user.id]
         assert len(sent) == 1
         assert sent[0]["caption"] == texts.DONE_CAPTION
+        # the local server uploads the file to Telegram before it answers: aiogram's 60 s would not do
+        assert sent[0]["request_timeout"] == worker_module.LONG_REQUEST_SEC == 600
         assert re.fullmatch(r"uniq_[0-9a-f]{8}\.mp4", sent[0]["document"].filename)
         # processing, the result, then the "done" edit
         assert [m for m, kw in env.bot.calls if kw.get("chat_id") == user.id] == [
@@ -399,7 +401,8 @@ async def test_local_fetcher_moves_file(tmp_path):
     assert result == dest_dir / "input.mp4"
     assert result.read_bytes() == b"video"
     assert not server_file.exists()
-    assert bot.called("get_file") == [{"file_id": "fid"}]
+    # the local server fetches the whole file from Telegram before it answers getFile: aiogram's 60 s would not do
+    assert bot.called("get_file") == [{"file_id": "fid", "request_timeout": 600}]
 
 
 async def test_cloud_fetcher_downloads_by_file_id(tmp_path):
@@ -410,7 +413,7 @@ async def test_cloud_fetcher_downloads_by_file_id(tmp_path):
 
     assert result == tmp_path / "input.mov"
     assert result.read_bytes() == b"from the cloud"
-    assert bot.called("download") == [{"file": "fid", "destination": tmp_path / "input.mov"}]
+    assert bot.called("download") == [{"file": "fid", "destination": tmp_path / "input.mov", "timeout": 600}]
 
 
 def test_make_fetcher_follows_bot_api_url():
