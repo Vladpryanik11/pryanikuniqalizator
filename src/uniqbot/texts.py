@@ -1,6 +1,9 @@
 """Every text the bot writes to people. The limits in it come from Settings."""
 
+from dataclasses import asdict
+
 from .config import Settings
+from .repo import Stats
 
 WELCOME = "Пришли видео до {max_mb} МБ и не длиннее {max_min} мин — верну уникальную копию файлом."
 NOT_SUBSCRIBED = "Бот бесплатный для подписчиков канала. Подпишись и нажми «Я подписался»."
@@ -29,6 +32,20 @@ SUB_CHECK_ALERT = "Не получается проверить подписку
 # for the admins: an order failed for a reason other than the user's file
 ORDER_FAILED_ALERT = "Заказ №{order_id} (пользователь {tg_id}) не обработан: {error}"
 
+# for the admins: /stats and /broadcast
+STATS = ("👥 Пользователей: {users_total} (новых за сутки {users_new_day}, за 7 дней {users_new_week})\n"
+         "Активных за 7 дней: {users_active_week}\nПодписаны: {users_subscribed}\n"
+         "Заблокировали бота: {users_blocked}\n🎬 Видео: за сутки {done_day}, всего {done_total}; "
+         "ошибок за сутки {failed_day}\nОчередь: {queued}{processing_mark}")
+STATS_PROCESSING = " + 1 в работе"
+BC_ASK_POST = "Пришли пост для рассылки. /cancel — отмена."
+BC_CONFIRM = "Отправить {n} пользователям?"
+BC_GO, BC_CANCEL = "Отправить", "Отмена"
+BC_CANCELLED = "Рассылка отменена."
+BC_BUSY = "Рассылка уже идёт, дождись отчёта."
+BC_PROGRESS = "Рассылка: {done} из {total}…"
+BC_REPORT = "Рассылка завершена. Доставлено: {sent}, заблокировали бота: {blocked}, ошибок: {failed}."
+
 
 def _max_min(settings: Settings) -> int:
     return settings.max_duration_sec // 60
@@ -56,3 +73,19 @@ def sub_check_alert(error: object) -> str:
 
 def order_failed_alert(order_id: int, tg_id: int, error: str) -> str:
     return ORDER_FAILED_ALERT.format(order_id=order_id, tg_id=tg_id, error=error)
+
+
+def stats(s: Stats) -> str:
+    return STATS.format(**asdict(s), processing_mark=STATS_PROCESSING if s.processing else "")
+
+
+def bc_confirm(n: int) -> str:
+    return BC_CONFIRM.format(n=n)
+
+
+def bc_progress(done: int, total: int) -> str:
+    return BC_PROGRESS.format(done=done, total=total)
+
+
+def bc_report(sent: int, blocked: int, failed: int) -> str:
+    return BC_REPORT.format(sent=sent, blocked=blocked, failed=failed)

@@ -13,6 +13,7 @@ dependencies = [
   "aiosqlite>=0.20",
   "pydantic-settings>=2.4",
   "pyyaml>=6.0",
+  "tzdata>=2024.1",
   "video-uniquifier @ git+https://github.com/Hostlife22/video-uniquifier@e9138ddbc798cb23e28b44d9edf7959a712f0add",
 ]
 

@@ -28,8 +28,9 @@ class FakeBot:
 
     get_chat_member answers from `member_status` (and `member_is_member` for "restricted") or raises `member_error`;
     `send_errors` maps a chat id to the error send_message raises for it, `edit_error` is raised by edit_message_text
-    and `document_errors` (by chat id, like `send_errors`) by send_document. send_document reads the file it is given
-    into `sent_files`, as the real one would; download() writes `file_bytes` to the destination.
+    and `document_errors` (by chat id, like `send_errors`) by send_document. `copy_errors` maps a chat id to the
+    errors copy_message raises for it, one per call in order, and then it succeeds. send_document reads the file it
+    is given into `sent_files`, as the real one would; download() writes `file_bytes` to the destination.
     """
 
     def __init__(self) -> None:
@@ -40,6 +41,7 @@ class FakeBot:
         self.send_errors: dict[int, Exception] = {}
         self.edit_error: Exception | None = None
         self.document_errors: dict[int, Exception] = {}
+        self.copy_errors: dict[int, list[Exception]] = {}
         self.sent_files: list[bytes] = []
         self.file_path = "videos/file_0.mp4"
         self.file_bytes = b"video"
@@ -79,6 +81,8 @@ class FakeBot:
 
     async def copy_message(self, chat_id, from_chat_id, message_id, **kwargs):
         self._record("copy_message", chat_id=chat_id, from_chat_id=from_chat_id, message_id=message_id, **kwargs)
+        if self.copy_errors.get(chat_id):
+            raise self.copy_errors[chat_id].pop(0)
         self.last_message_id += 1
         return SimpleNamespace(message_id=self.last_message_id)
 
@@ -104,7 +108,9 @@ class FakeBot:
 class FakeMessage:
     """The part of aiogram's Message the handlers use; answer() goes through the bot like the real one."""
 
-    def __init__(self, bot, user, *, text=None, video=None, document=None, animation=None, message_id=1) -> None:
+    def __init__(
+        self, bot, user, *, text=None, video=None, document=None, animation=None, message_id=1, reply_markup=None
+    ) -> None:
         self.bot = bot
         self.from_user = user
         self.chat = SimpleNamespace(id=user.id, type="private")
@@ -113,6 +119,7 @@ class FakeMessage:
         self.video = video
         self.document = document
         self.animation = animation
+        self.reply_markup = reply_markup
 
     async def answer(self, text, **kwargs):
         return await self.bot.send_message(self.chat.id, text, **kwargs)
