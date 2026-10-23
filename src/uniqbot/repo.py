@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 
 from sqlalchemy import func, literal, select, update
 from sqlalchemy.dialects.sqlite import insert
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from .db import Broadcast, BroadcastStatus, Order, OrderStatus, User, UTCDateTime, utcnow
@@ -14,6 +15,10 @@ Sessions = async_sessionmaker[AsyncSession]
 ERROR_MAX = 2000
 _SOURCE_RE = re.compile(r"[A-Za-z0-9_-]{1,64}")
 _OPEN = (OrderStatus.QUEUED, OrderStatus.PROCESSING)
+
+
+class ActiveOrderExists(Exception):
+    """The user already has a queued or processing order."""
 
 
 @dataclass(frozen=True)
@@ -128,18 +133,25 @@ async def create_order(
     mime_type: str | None,
     file_name: str | None,
 ) -> tuple[int, int]:
-    """Queue an order; returns (order_id, position in the line)."""
-    async with sessions.begin() as s:
-        order = Order(
-            tg_id=tg_id, file_id=file_id, file_size=file_size, duration=duration, mime_type=mime_type, file_name=file_name
-        )
-        s.add(order)
-        await s.flush()
-        ahead = await s.scalar(
-            select(func.count()).select_from(Order).where(Order.status == OrderStatus.QUEUED, Order.id < order.id)
-        )
-        busy = await s.scalar(select(func.count()).select_from(Order).where(Order.status == OrderStatus.PROCESSING))
-        return order.id, ahead + 1 + (1 if busy else 0)
+    """Queue an order; returns (order_id, position in the line).
+    Raises ActiveOrderExists if the user already has an open one (the unique index decides, so races are safe)."""
+    try:
+        async with sessions.begin() as s:
+            order = Order(
+                tg_id=tg_id, file_id=file_id, file_size=file_size, duration=duration, mime_type=mime_type, file_name=file_name
+            )
+            s.add(order)
+            await s.flush()
+            ahead = await s.scalar(
+                select(func.count()).select_from(Order).where(Order.status == OrderStatus.QUEUED, Order.id < order.id)
+            )
+            busy = await s.scalar(select(func.count()).select_from(Order).where(Order.status == OrderStatus.PROCESSING))
+            return order.id, ahead + 1 + (1 if busy else 0)
+    except IntegrityError as e:
+        # other violations (an unknown user: foreign key) are not ours to hide
+        if "UNIQUE constraint failed: orders.tg_id" in str(e.orig):
+            raise ActiveOrderExists(tg_id) from e
+        raise
 
 
 async def set_status_message(sessions: Sessions, order_id: int, message_id: int) -> None:

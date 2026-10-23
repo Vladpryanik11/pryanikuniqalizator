@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 from enum import StrEnum
 from pathlib import Path
 
-from sqlalchemy import BigInteger, DateTime, ForeignKey, String, Text, TypeDecorator, event
+from sqlalchemy import BigInteger, DateTime, ForeignKey, Index, String, Text, TypeDecorator, event, text
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -69,6 +69,10 @@ class User(Base):
 
 class Order(Base):
     __tablename__ = "orders"
+    __table_args__ = (
+        # one open order per user, enforced here so two videos sent at once cannot both get in
+        Index("uq_orders_open_per_user", "tg_id", unique=True, sqlite_where=text("status IN ('queued', 'processing')")),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     tg_id: Mapped[int] = mapped_column(ForeignKey("users.tg_id"), index=True)

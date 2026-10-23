@@ -1,12 +1,14 @@
+import asyncio
 import json
 from datetime import datetime, timedelta, timezone
 
 import pytest
+from sqlalchemy.exc import IntegrityError
 
 from uniqbot import repo
 from uniqbot.db import (
-    BroadcastStatus,
     Broadcast,
+    BroadcastStatus,
     Order,
     OrderStatus,
     User,
@@ -159,6 +161,46 @@ async def test_one_active_order(sessions):
     assert await repo.active_order(sessions, 1) is None
 
 
+async def test_second_open_order_is_refused(sessions):
+    await repo.touch_user(sessions, profile(), now=NOW)
+    first, _ = await new_order(sessions)
+    with pytest.raises(repo.ActiveOrderExists):
+        await new_order(sessions)
+    assert await repo.active_order_ids(sessions) == {first}
+
+    await repo.claim_next(sessions, now=NOW)  # still open while processing
+    with pytest.raises(repo.ActiveOrderExists):
+        await new_order(sessions)
+    assert await repo.active_order_ids(sessions) == {first}
+
+
+@pytest.mark.parametrize("final", [OrderStatus.DONE, OrderStatus.FAILED])
+async def test_new_order_after_the_previous_one_finished(sessions, final):
+    await repo.touch_user(sessions, profile(), now=NOW)
+    first, _ = await new_order(sessions)
+    await repo.claim_next(sessions, now=NOW)
+    await repo.finish_order(sessions, first, final, now=NOW)
+
+    second, position = await new_order(sessions)
+    assert (second > first, position) == (True, 1)
+
+
+async def test_concurrent_orders_of_one_user_let_one_through(sessions):
+    await repo.touch_user(sessions, profile(), now=NOW)
+    results = await asyncio.gather(*[new_order(sessions) for _ in range(5)], return_exceptions=True)
+
+    created = [r for r in results if isinstance(r, tuple)]
+    refused = [r for r in results if isinstance(r, repo.ActiveOrderExists)]
+    assert (len(created), len(refused)) == (1, 4)
+    assert await repo.active_order_ids(sessions) == {created[0][0]}
+
+
+async def test_order_of_unknown_user_is_not_taken_for_a_second_open_order(sessions):
+    with pytest.raises(IntegrityError):  # the foreign key, not ActiveOrderExists
+        await new_order(sessions, 404)
+    assert await repo.active_order_ids(sessions) == set()
+
+
 async def test_status_message_is_stored(sessions):
     await repo.touch_user(sessions, profile(), now=NOW)
     oid, _ = await new_order(sessions)
@@ -254,7 +296,7 @@ async def test_stats_windows(sessions):
         await repo.claim_next(sessions, now=NOW - ago)
         await repo.finish_order(sessions, oid, finish_status, error="e", now=NOW - ago)
     await new_order(sessions, 2)
-    await new_order(sessions, 2)
+    await new_order(sessions, 3)
     await repo.claim_next(sessions, now=NOW)
 
     s = await repo.stats(sessions, NOW)
