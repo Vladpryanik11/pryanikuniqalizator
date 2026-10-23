@@ -1,11 +1,12 @@
 """Fakes for the aiogram layer: a recording bot and session, messages, callbacks and a deps builder."""
 
 import asyncio
+from pathlib import Path
 from types import SimpleNamespace
 
 from aiogram import Bot
 from aiogram.client.session.base import BaseSession
-from aiogram.types import Document, Video
+from aiogram.types import Document, FSInputFile, Video
 from aiogram.types import User as TgUser
 from sqlalchemy.ext.asyncio import AsyncEngine
 
@@ -26,7 +27,9 @@ class FakeBot:
     """Records the API calls of the handlers as (method, kwargs) in `calls`.
 
     get_chat_member answers from `member_status` (and `member_is_member` for "restricted") or raises `member_error`;
-    `send_errors` maps a chat id to the error send_message raises for it, `edit_error` is raised by edit_message_text.
+    `send_errors` maps a chat id to the error send_message raises for it, `edit_error` is raised by edit_message_text
+    and `document_errors` (by chat id, like `send_errors`) by send_document. send_document reads the file it is given
+    into `sent_files`, as the real one would; download() writes `file_bytes` to the destination.
     """
 
     def __init__(self) -> None:
@@ -36,7 +39,10 @@ class FakeBot:
         self.member_error: Exception | None = None
         self.send_errors: dict[int, Exception] = {}
         self.edit_error: Exception | None = None
+        self.document_errors: dict[int, Exception] = {}
+        self.sent_files: list[bytes] = []
         self.file_path = "videos/file_0.mp4"
+        self.file_bytes = b"video"
         self.last_message_id = 100
 
     def _record(self, method: str, **kwargs) -> None:
@@ -58,6 +64,10 @@ class FakeBot:
 
     async def send_document(self, chat_id, document, **kwargs):
         self._record("send_document", chat_id=chat_id, document=document, **kwargs)
+        if chat_id in self.document_errors:
+            raise self.document_errors[chat_id]
+        if isinstance(document, FSInputFile):
+            self.sent_files.append(Path(document.path).read_bytes())
         self.last_message_id += 1
         return SimpleNamespace(message_id=self.last_message_id)
 
@@ -85,6 +95,10 @@ class FakeBot:
     async def get_file(self, file_id):
         self._record("get_file", file_id=file_id)
         return SimpleNamespace(file_path=self.file_path)
+
+    async def download(self, file, destination=None, **kwargs):
+        self._record("download", file=file, destination=destination, **kwargs)
+        Path(destination).write_bytes(self.file_bytes)
 
 
 class FakeMessage:

@@ -26,6 +26,9 @@ PRIVACY = ("Бот хранит твой Telegram ID, имя, @username, язы�
 # for the admins: the subscription cannot be checked (the bot is probably not an admin of the channel)
 SUB_CHECK_ALERT = "Не получается проверить подписку на канал: {error}. Бот должен быть админом канала."
 
+# for the admins: an order failed for a reason other than the user's file
+ORDER_FAILED_ALERT = "Заказ №{order_id} (пользователь {tg_id}) не обработан: {error}"
+
 
 def _max_min(settings: Settings) -> int:
     return settings.max_duration_sec // 60
@@ -49,3 +52,7 @@ def accepted(position: int) -> str:
 
 def sub_check_alert(error: object) -> str:
     return SUB_CHECK_ALERT.format(error=error)
+
+
+def order_failed_alert(order_id: int, tg_id: int, error: str) -> str:
+    return ORDER_FAILED_ALERT.format(order_id=order_id, tg_id=tg_id, error=error)
