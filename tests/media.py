@@ -1,0 +1,69 @@
+"""Tiny synthetic clips for the engine tests (2 s of testsrc2 + a 440 Hz sine)."""
+
+import subprocess
+from pathlib import Path
+
+KINDS = ("vertical", "horizontal", "silent", "hlg", "rotated", "hlg_rotated", "mov_tmcd_pcm", "audio_only", "audio_cover")
+
+_VIDEO_H264 = ["-c:v", "libx264", "-pix_fmt", "yuv420p"]
+# ffmpeg 9 drops -color_trc/-color_primaries after the implicit pix_fmt conversion, so the frames are tagged by setparams
+_VIDEO_HLG = [
+    "-vf", "format=yuv420p10le,setparams=color_primaries=bt2020:color_trc=arib-std-b67:colorspace=bt2020nc",
+    "-c:v", "libx265", "-pix_fmt", "yuv420p10le",
+    "-color_primaries", "bt2020", "-color_trc", "arib-std-b67", "-colorspace", "bt2020nc",
+    "-x265-params", "log-level=error",
+]
+
+
+def _ffmpeg(*args: object) -> None:
+    cmd = ["ffmpeg", "-hide_banner", "-nostdin", "-y", "-v", "error", *map(str, args)]
+    subprocess.run(cmd, check=True, capture_output=True)
+
+
+def _generate(size: str | None, video_args: list[str], audio_args: list[str], dest: Path, *extra: str) -> None:
+    inputs: list[str] = []
+    if size:
+        inputs += ["-f", "lavfi", "-i", f"testsrc2=size={size}:rate=25:duration=2"]
+    if audio_args:
+        inputs += ["-f", "lavfi", "-i", "sine=frequency=440:duration=2"]
+    _ffmpeg(*inputs, *(video_args if size else []), *audio_args, *extra, dest)
+
+
+def _rotate(src: Path, dest: Path) -> None:
+    # a phone-style clip: frames stored 320x180, shown turned by 90 degrees (display matrix)
+    _ffmpeg("-display_rotation", 90, "-i", src, "-c", "copy", dest)
+
+
+def make_clip(kind: str, dest_dir: Path) -> Path:
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    aac = ["-c:a", "aac"]
+    out = dest_dir / f"{kind}.mp4"
+    if kind == "vertical":
+        _generate("180x320", _VIDEO_H264, aac, out)
+    elif kind == "horizontal":
+        _generate("320x180", _VIDEO_H264, aac, out)
+    elif kind == "silent":
+        _generate("180x320", _VIDEO_H264, [], out)
+    elif kind == "hlg":
+        _generate("180x320", _VIDEO_HLG, aac, out)
+    elif kind in ("rotated", "hlg_rotated"):
+        tmp = dest_dir / f"{kind}_unrotated.mp4"
+        _generate("320x180", _VIDEO_HLG if kind == "hlg_rotated" else _VIDEO_H264, aac, tmp)
+        _rotate(tmp, out)
+        tmp.unlink()
+    elif kind == "mov_tmcd_pcm":
+        out = dest_dir / f"{kind}.mov"
+        _generate("180x320", _VIDEO_H264, ["-c:a", "pcm_s16le"], out, "-timecode", "00:00:00:00")
+    elif kind == "audio_only":
+        out = dest_dir / f"{kind}.m4a"
+        _generate(None, [], aac, out)
+    elif kind == "audio_cover":
+        # a song with cover art: its only "video" stream is an attached picture
+        cover, song = dest_dir / "cover.png", dest_dir / "song.m4a"
+        _ffmpeg("-f", "lavfi", "-i", "testsrc2=size=64x64", "-frames:v", 1, cover)
+        _generate(None, [], aac, song)
+        out = dest_dir / f"{kind}.m4a"
+        _ffmpeg("-i", song, "-i", cover, "-map", 0, "-map", 1, "-c", "copy", "-disposition:v:0", "attached_pic", out)
+    else:
+        raise ValueError(f"unknown clip kind: {kind}")
+    return out
