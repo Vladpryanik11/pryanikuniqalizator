@@ -1,0 +1,48 @@
+# Lives in /opt/uniqbot/app on the server; data and .env sit next to it, outside the code that deploys replace.
+# The name is explicit: the directory is called "app" on this server, and another project there is named the same way
+# by default, so `up --remove-orphans` would take its containers for orphans.
+name: uniqbot
+services:
+  bot-api:
+    # Local Bot API server: no 20 MB download / 50 MB upload limits. Pinned by digest after the first deploy
+    image: aiogram/telegram-bot-api:latest
+    restart: unless-stopped
+    env_file: ["../.env"]
+    environment:
+      TELEGRAM_LOCAL: "1"
+    volumes:
+      - bot-api-data:/var/lib/telegram-bot-api
+    mem_limit: 256m
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+  bot:
+    build:
+      context: .
+      target: runtime
+    image: uniqbot:latest
+    container_name: uniqbot
+    restart: unless-stopped
+    init: true
+    depends_on: [bot-api]
+    env_file: ["../.env"]
+    environment:
+      TZ: Europe/Moscow
+      DATA_DIR: /app/data
+      BOT_API_URL: http://bot-api:8081
+    volumes:
+      - ../data:/app/data
+      - bot-api-data:/var/lib/telegram-bot-api
+    # half of the reels bot's default 1024: when both render, the reels bot gets the CPU first
+    cpu_shares: 256
+    mem_limit: 1536m
+    stop_grace_period: 30s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+volumes:
+  bot-api-data: {}
