@@ -261,6 +261,40 @@ async def test_long_error_keeps_its_tail(env):
     assert len(admin_texts(env)[0]) < 4096  # fits one Telegram message
 
 
+@pytest.mark.parametrize(
+    "configured, token",
+    [
+        ("123456:" + "A" * 35, "123456:" + "A" * 35),  # the token is known and has the usual shape
+        (None, "123456:" + "A" * 35),  # not configured: it is recognised by its shape
+        ("secret-without-a-token-shape", "secret-without-a-token-shape"),  # known, but shaped like nothing
+    ],
+    ids=["known", "by-shape", "exact-only"],
+)
+async def test_the_token_never_reaches_the_order_or_the_alert(tmp_path, configured, token):
+    bot = FakeBot()
+    deps, engine = await make_deps(tmp_path, bot=bot, bot_token=configured)
+    env = SimpleNamespace(bot=bot, deps=deps, settings=deps.settings, renderer=FakeRenderer())
+
+    class LeakyFetcher:
+        async def fetch(self, bot, file_id, dest_dir, suffix):
+            raise FileNotFoundError(f"/var/lib/telegram-bot-api/{token}/videos/file_0.mp4")
+
+    env.worker = Worker(bot, deps, fetcher=LeakyFetcher(), renderer=env.renderer)
+    try:
+        order_id = await queue(env, ALICE)
+        await drain(env)
+
+        row = await order_row(env, order_id)
+        assert row.status == OrderStatus.FAILED
+        assert "<token>" in row.error and token not in row.error
+        assert "file_0.mp4" in row.error  # only the token goes, the rest of the reason stays
+        for admin_id in ADMIN_IDS:
+            (alert,) = env.bot.texts(admin_id)
+            assert "<token>" in alert and token not in alert
+    finally:
+        await engine.dispose()
+
+
 async def test_user_blocked_bot_before_result(env):
     first = await queue(env, ALICE)
     second = await queue(env, BOB)

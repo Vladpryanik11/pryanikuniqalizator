@@ -30,6 +30,11 @@ class Settings(BaseSettings):
         return value if value.is_absolute() else PROJECT_ROOT / value
 
     @property
+    def token_value(self) -> str | None:
+        """The bot token as a plain string, for redacting it from text; None if it is not set."""
+        return self.bot_token.get_secret_value() if self.bot_token else None
+
+    @property
     def admin_id_list(self) -> list[int]:
         return [int(x) for x in self.admin_ids.replace(" ", "").split(",") if x]
 

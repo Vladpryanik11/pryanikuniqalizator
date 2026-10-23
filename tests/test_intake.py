@@ -200,6 +200,19 @@ async def test_check_failure_tells_user_and_alerts_admins(env):
     assert len(alerts) == 2  # the admins are not bothered again within 10 minutes
 
 
+async def test_check_failure_alert_never_holds_the_token(env):
+    token = "123456:" + "A" * 35
+    env.bot.member_error = TelegramNetworkError(
+        method=GetChatMember(chat_id=1, user_id=1), message=f"cannot reach https://api.telegram.org/bot{token}/getChatMember"
+    )
+
+    await on_video(msg(env, video=video()), env.bot, env.deps)
+
+    alerts = [kw["text"] for kw in env.bot.called("send_message") if kw["chat_id"] in ADMIN_IDS]
+    assert len(alerts) == 2
+    assert all("<token>" in text and token not in text for text in alerts)
+
+
 async def test_check_failure_on_start_and_on_the_button(env):
     env.bot.member_error = check_error()
 

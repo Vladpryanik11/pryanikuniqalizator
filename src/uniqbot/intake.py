@@ -23,6 +23,7 @@ from . import repo, texts
 from .access import SubscriptionCheckFailed, check_subscription
 from .config import Settings
 from .deps import Deps
+from .redact import redact
 
 log = logging.getLogger(__name__)
 
@@ -47,7 +48,7 @@ async def _check(bot: Bot, deps: Deps, user_id: int) -> bool | None:
         subscribed = await check_subscription(bot, deps.settings.channel_id, user_id)
     except SubscriptionCheckFailed as e:
         log.warning("subscription check failed for %s: %s", user_id, e)
-        await deps.alerts.alert("subscription-check", texts.sub_check_alert(e))
+        await deps.alerts.alert("subscription-check", texts.sub_check_alert(redact(str(e), deps.settings.token_value)))
         return None
     await repo.set_subscription(deps.sessions, user_id, subscribed)
     return subscribed

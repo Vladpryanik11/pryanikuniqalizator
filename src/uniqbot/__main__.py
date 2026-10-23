@@ -16,6 +16,7 @@ from uniqbot.app import StartupError, logout_cloud, run_bot
 from uniqbot.config import PROJECT_ROOT, Settings
 from uniqbot.engine import EngineError, render
 from uniqbot.profile import load_ranges
+from uniqbot.redact import redact
 
 RENDER_TIMEOUT_SEC = 900  # fixed limits: the render command deliberately does not read .env
 
@@ -28,8 +29,7 @@ class TokenRedactingFormatter(logging.Formatter):
         self._token = token
 
     def format(self, record: logging.LogRecord) -> str:
-        text = super().format(record)
-        return text.replace(self._token, "<token>") if self._token else text
+        return redact(super().format(record), self._token)
 
 
 def setup_logging(token: str | None) -> None:
@@ -63,7 +63,7 @@ def _render_command(args: argparse.Namespace) -> int:
 
 def _bot_command() -> int:
     settings = Settings()
-    setup_logging(settings.bot_token.get_secret_value() if settings.bot_token else None)
+    setup_logging(settings.token_value)
     try:
         asyncio.run(run_bot(settings))
     except StartupError as e:

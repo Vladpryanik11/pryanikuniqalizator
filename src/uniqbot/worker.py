@@ -19,6 +19,7 @@ from .config import Settings
 from .db import Order, OrderStatus
 from .deps import Deps
 from .engine import EngineError, NotAVideo, RenderResult, TooLong, render
+from .redact import redact
 
 log = logging.getLogger(__name__)
 
@@ -69,9 +70,12 @@ def input_suffix(mime_type: str | None, file_name: str | None) -> str:
     return suffix if _SUFFIX_RE.fullmatch(suffix) else ".mp4"  # the name is the sender's: only a plain extension is used
 
 
-def _describe(error: BaseException) -> str:
-    """What is stored on the order and sent to the admins; too long means the start is cut, the end explains the failure."""
-    return f"{type(error).__name__}: {error}"[-repo.ERROR_MAX :]
+def _describe(error: BaseException, token: str | None) -> str:
+    """What is stored on the order and sent to the admins, without the bot token (a file path or URL can hold it).
+
+    Too long means the start is cut, the end explains the failure.
+    """
+    return redact(f"{type(error).__name__}: {error}", token)[-repo.ERROR_MAX :]
 
 
 class Worker:
@@ -168,7 +172,7 @@ class Worker:
         return message_id
 
     async def _fail(self, order: Order, user_text: str, error: BaseException, *, alert: bool) -> None:
-        reason = _describe(error)
+        reason = _describe(error, self._deps.settings.token_value)
         await repo.finish_order(self._deps.sessions, order.id, OrderStatus.FAILED, error=reason)
         try:
             await self._bot.send_message(order.tg_id, user_text)
