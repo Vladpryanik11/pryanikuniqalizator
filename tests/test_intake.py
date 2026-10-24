@@ -346,6 +346,15 @@ async def test_privacy(env):
     assert env.bot.texts(USER.id) == [texts.PRIVACY]
 
 
+def test_privacy_text_lists_every_stored_field():
+    assert texts.PRIVACY == (
+        "Бот хранит твой Telegram ID, имя, @username, язык, отметку Telegram Premium, дату первого и последнего "
+        "визита, метку ссылки, по которой ты пришёл, статус подписки на канал, число обработанных видео и то, "
+        "заблокирован ли бот. Это нужно, чтобы пускать подписчиков, считать статистику и присылать новости бота. "
+        "Видео удаляются сразу после обработки."
+    )
+
+
 def member_update(chat_type: str, new_status_member) -> ChatMemberUpdated:
     return ChatMemberUpdated(
         chat=Chat(id=USER.id if chat_type == "private" else -5, type=chat_type),
