@@ -20,6 +20,9 @@ TONEMAP_SDR = (
     "zscale=t=linear:npl=1000,tonemap=hable:desat=0.0000:peak=10.0000,"
     "zscale=t=bt709:m=bt709:p=bt709:r=tv,format=yuv420p"
 )
+# The engine outputs 1080x1920 anyway, so a clip that has to be re-encoded is first cut down to at most 1920 on a side
+# (a 4K HDR phone clip would otherwise take most of the render budget on 2 vCPU); even sides for yuv420p.
+DOWNSCALE = "scale=w='min(iw,1920)':h='min(ih,1920)':force_original_aspect_ratio=decrease:force_divisible_by=2"
 NORMALIZE_TIMEOUT = 600  # when normalize is called on its own; render passes what is left of its budget
 
 
@@ -128,7 +131,7 @@ async def normalize(src: Path, dest: Path, info: SourceInfo, timeout: float = NO
     ]
     if info.rotated or info.hdr:
         # ffmpeg turns the frame upright while decoding; the engine rejects HDR and rotation flags
-        cmd += ["-vf", TONEMAP_SDR if info.hdr else "format=yuv420p"]
+        cmd += ["-vf", f"{DOWNSCALE},{TONEMAP_SDR if info.hdr else 'format=yuv420p'}"]
         cmd += ["-c:v", "libx264", "-preset", "veryfast", "-crf", "14", "-c:a", "copy"]
     else:
         cmd += ["-c", "copy"]

@@ -6,6 +6,8 @@ from types import SimpleNamespace
 
 import pytest
 
+from media import make_clip
+
 from uniqbot import engine
 from uniqbot.config import PROJECT_ROOT
 from uniqbot.engine import EngineError, NotAVideo, TooLong, normalize, probe_source, render, run_engine
@@ -108,6 +110,25 @@ async def test_normalize_tonemaps_hdr(clips, tmp_path):
     video = ffprobe_json(dest)["streams"][0]
     assert video.get("color_transfer") not in HDR_TRANSFERS and video["pix_fmt"] == "yuv420p"
     assert not (await probe_source(dest)).hdr
+
+
+@pytest.mark.parametrize(("kind", "shown"), [("big_rotated", (1200, 2400)), ("big_hlg", (1100, 2000))])
+async def test_normalize_downscales_before_it_re_encodes(kind, shown, tmp_path):
+    # the engine outputs 1080x1920 anyway; re-encoding a 4K phone clip at full size would eat the time budget
+    src, dest = make_clip(kind, tmp_path / "src"), tmp_path / "clean.mkv"
+    info = await probe_source(src)
+    assert info.rotated or info.hdr  # it takes the re-encode path
+    await normalize(src, dest, info)
+    out = await probe_source(dest)
+    assert not out.rotated and not out.hdr
+    assert max(out.width, out.height) <= 1920 and out.width % 2 == 0 and out.height % 2 == 0
+    assert abs(out.width * shown[1] - out.height * shown[0]) <= shown[1]  # the aspect ratio is kept to a pixel
+
+
+async def test_normalize_copy_path_keeps_the_size(clips, tmp_path):
+    src, dest = clips["horizontal"], tmp_path / "clean.mkv"
+    await normalize(src, dest, await probe_source(src))
+    assert (await probe_source(dest)).width == 320  # nothing is scaled when the streams are copied
 
 
 async def test_normalize_drops_timecode_and_keeps_pcm(clips, tmp_path):

@@ -46,6 +46,16 @@ def make_clip(kind: str, dest_dir: Path) -> Path:
         _generate("180x320", _VIDEO_H264, [], out)
     elif kind == "hlg":
         _generate("180x320", _VIDEO_HLG, aac, out)
+    elif kind in ("big_rotated", "big_hlg"):
+        # larger than the engine's 1080x1920 output; not in KINDS: only the tests that need it pay for it.
+        # big_rotated is stored 2400x1200 and shown turned to 1200x2400, big_hlg is 1100x2000 HLG
+        if kind == "big_hlg":
+            _generate("1100x2000", _VIDEO_HLG, aac, out, "-preset", "ultrafast")
+        else:
+            tmp = dest_dir / f"{kind}_unrotated.mp4"
+            _generate("2400x1200", _VIDEO_H264, aac, tmp, "-preset", "ultrafast")
+            _rotate(tmp, out)
+            tmp.unlink()
     elif kind in ("rotated", "hlg_rotated"):
         tmp = dest_dir / f"{kind}_unrotated.mp4"
         _generate("320x180", _VIDEO_HLG if kind == "hlg_rotated" else _VIDEO_H264, aac, tmp)
