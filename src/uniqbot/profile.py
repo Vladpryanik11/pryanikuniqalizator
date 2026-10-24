@@ -4,10 +4,9 @@ import random
 from dataclasses import asdict, dataclass
 from importlib import resources
 from pathlib import Path
-
-import yaml
 from typing import Annotated
 
+import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 PROFILE_NAME = "uniqbot_order"
