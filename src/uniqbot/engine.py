@@ -23,6 +23,11 @@ TONEMAP_SDR = (
 # The engine outputs 1080x1920 anyway, so a clip that has to be re-encoded is first cut down to at most 1920 on a side
 # (a 4K HDR phone clip would otherwise take most of the render budget on 2 vCPU); even sides for yuv420p.
 DOWNSCALE = "scale=w='min(iw,1920)':h='min(ih,1920)':force_original_aspect_ratio=decrease:force_divisible_by=2"
+# The upload is the sender's: ffprobe and ffmpeg may open it only as one of these container formats, never as a
+# playlist, a concat script or anything else that names other files (demuxers are sniffed from the content).
+INPUT_FORMATS = "mov,matroska,avi,mpegts,mpeg,flv,asf,ogg"
+UNTRUSTED_INPUT = ["-format_whitelist", INPUT_FORMATS]
+SECRET_ENV = {"BOT_TOKEN", "TELEGRAM_API_HASH", "TELEGRAM_API_ID"}  # not for the tools that read uploads
 NORMALIZE_TIMEOUT = 600  # when normalize is called on its own; render passes what is left of its budget
 
 
@@ -67,8 +72,16 @@ async def _kill(proc: asyncio.subprocess.Process) -> None:
         await proc.wait()
 
 
+def child_env(**extra: str) -> dict[str, str]:
+    """The environment of ffprobe, ffmpeg and the engine: ours without the bot's secrets, plus `extra`."""
+    env = {name: value for name, value in os.environ.items() if name.upper() not in SECRET_ENV}
+    return env | extra
+
+
 async def _run(cmd: list[str], timeout: float, label: str, env: dict[str, str] | None = None) -> bytes:
     group = {"start_new_session": True} if os.name == "posix" else {}
+    if env is None:
+        env = child_env()
     try:
         proc = await asyncio.create_subprocess_exec(
             *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE, env=env, **group
@@ -93,7 +106,10 @@ async def _run(cmd: list[str], timeout: float, label: str, env: dict[str, str] |
 async def probe_source(path: Path) -> SourceInfo:
     try:
         raw = await _run(
-            ["ffprobe", "-v", "error", "-print_format", "json", "-show_format", "-show_streams", str(path)],
+            [
+                "ffprobe", "-v", "error", "-print_format", "json", "-show_format", "-show_streams",
+                *UNTRUSTED_INPUT, "-i", str(path),
+            ],
             60, "ffprobe",
         )
     except EngineError as e:
@@ -126,7 +142,7 @@ async def probe_source(path: Path) -> SourceInfo:
 async def normalize(src: Path, dest: Path, info: SourceInfo, timeout: float = NORMALIZE_TIMEOUT) -> None:
     """Write dest (.mkv): the first real video stream and the first audio stream, no metadata, SDR, upright."""
     cmd = [
-        "ffmpeg", "-hide_banner", "-nostdin", "-y", "-v", "error", "-i", str(src),
+        "ffmpeg", "-hide_banner", "-nostdin", "-y", "-v", "error", *UNTRUSTED_INPUT, "-i", str(src),
         "-map", "0:V:0", "-map", "0:a:0?", "-sn", "-dn", "-map_metadata", "-1", "-map_chapters", "-1",
     ]
     if info.rotated or info.hdr:
@@ -149,7 +165,7 @@ async def run_engine(clean: Path, profile: Path, out: Path, work: Path, timeout:
         "--workers", "1", "--no-qa", "--no-progress",
     ]
     # the engine prints emoji; a legacy console codepage would crash it
-    await _run(cmd, timeout, "video-uniq", {**os.environ, "PYTHONUTF8": "1"})
+    await _run(cmd, timeout, "video-uniq", child_env(PYTHONUTF8="1"))
 
 
 async def render(

@@ -458,12 +458,25 @@ def test_make_fetcher_follows_bot_api_url():
 @pytest.mark.parametrize(
     "mime_type, file_name, expected",
     [
-        ("video/quicktime", "IMG_1.MOV", ".MOV"),
+        ("video/quicktime", "IMG_1.MOV", ".mov"),  # lower-cased
+        ("video/mp4", "clip.Mp4", ".mp4"),
+        ("video/x-matroska", "a.MKV", ".mkv"),
+        ("video/mp2t", "stream.TS", ".ts"),
+        ("video/3gpp", "old.3GP", ".3gp"),
+        ("video/mpeg", "tv.mpg", ".mpg"),
+        ("video/x-m4v", "a.m4v", ".m4v"),
+        ("video/x-msvideo", "a.avi", ".avi"),
         (None, None, ".mp4"),
         ("video/mp4", "clip", ".mp4"),
         ("video/webm", "a/../b.webm", ".webm"),
         ("video/mp4", "evil.mp4 && rm", ".mp4"),
         ("video/mp4", "name.toolongextension", ".mp4"),
+        # only containers we accept: ffprobe would pick the demuxer from the extension (playlists, scripts, images)
+        ("application/vnd.apple.mpegurl", "list.m3u8", ".mp4"),
+        ("text/plain", "script.ffconcat", ".mp4"),
+        ("application/sdp", "call.sdp", ".mp4"),
+        ("image/jpeg", "photo.jpg", ".mp4"),
+        ("video/mp4", "clip.mp4.txt", ".mp4"),
     ],
 )
 def test_input_suffix(mime_type, file_name, expected):

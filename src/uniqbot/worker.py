@@ -3,7 +3,6 @@
 import asyncio
 import logging
 import random
-import re
 import secrets
 import shutil
 from collections.abc import Awaitable, Callable
@@ -28,7 +27,9 @@ ERROR_PAUSE_SEC = 5  # after an unexpected error, so a broken database does not 
 # The local Bot API server downloads the file from Telegram before it answers getFile and uploads the result before it
 # answers sendDocument; aiogram's default of 60 s fails on a 150-200 MB video.
 LONG_REQUEST_SEC = 600
-_SUFFIX_RE = re.compile(r"\.[A-Za-z0-9]{1,8}")
+# The extension of the sender's file name is used only if it names one of these containers; ffprobe guesses the
+# demuxer from the name too, so anything else (.m3u8, .sdp, .ffconcat...) must not reach it.
+_VIDEO_SUFFIXES = {".mp4", ".mov", ".m4v", ".mkv", ".webm", ".avi", ".ts", ".3gp", ".mpg"}
 
 Renderer = Callable[..., Awaitable[RenderResult]]
 
@@ -65,9 +66,12 @@ def make_fetcher(settings: Settings) -> FileFetcher:
 
 
 def input_suffix(mime_type: str | None, file_name: str | None) -> str:
-    """The extension of the original file name, or .mp4. The MIME type is not needed: ffprobe sniffs the container."""
-    suffix = Path(file_name).suffix if file_name else ""
-    return suffix if _SUFFIX_RE.fullmatch(suffix) else ".mp4"  # the name is the sender's: only a plain extension is used
+    """The lower-cased extension of the original file name if it is a known video container, otherwise .mp4.
+
+    The MIME type is not needed: ffprobe sniffs the container.
+    """
+    suffix = Path(file_name).suffix.lower() if file_name else ""
+    return suffix if suffix in _VIDEO_SUFFIXES else ".mp4"  # the name is the sender's
 
 
 def _describe(error: BaseException, token: str | None) -> str:

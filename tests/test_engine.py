@@ -1,6 +1,8 @@
 import json
 import random
+import shutil
 import subprocess
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -10,7 +12,17 @@ from media import make_clip
 
 from uniqbot import engine
 from uniqbot.config import PROJECT_ROOT
-from uniqbot.engine import EngineError, NotAVideo, TooLong, normalize, probe_source, render, run_engine
+from uniqbot.engine import (
+    EngineError,
+    NotAVideo,
+    SourceInfo,
+    TooLong,
+    child_env,
+    normalize,
+    probe_source,
+    render,
+    run_engine,
+)
 from uniqbot.profile import load_ranges
 
 pytestmark = pytest.mark.engine
@@ -173,6 +185,102 @@ async def test_run_engine_timeout_is_an_engine_error(clips, tmp_path):
         await run_engine(clips["vertical"], bad, tmp_path / "o.mp4", tmp_path / "t", timeout=0.05)
 
 
+# --- untrusted input: the upload is read as one of a few container formats, by tools without the bot's secrets ---
+
+WHITELIST = "mov,matroska,avi,mpegts,mpeg,flv,asf,ogg"
+SCRIPTS = {
+    # demuxers that read other files named in the "video": sniffed from the content, whatever the extension
+    "concat": "\n".join(["ffconcat version 1.0", "file seg.mp4", ""]),
+    "hls": "\n".join(["#EXTM3U", "#EXT-X-TARGETDURATION:2", "#EXTINF:2.0,", "seg.mp4", "#EXT-X-ENDLIST", ""]),
+}
+
+
+@pytest.mark.parametrize("script", SCRIPTS.values(), ids=SCRIPTS.keys())
+async def test_a_script_pointing_at_other_files_is_not_a_video(script, clips, tmp_path):
+    shutil.copy(clips["vertical"], tmp_path / "seg.mp4")
+    upload = tmp_path / "input.ts"  # an allowed extension, but the content is a script
+    upload.write_bytes(script.encode())
+    info = SourceInfo(duration=2, width=180, height=320, has_audio=True, rotated=False, hdr=False)
+
+    with pytest.raises(NotAVideo):
+        await probe_source(upload)
+    with pytest.raises(EngineError):
+        await normalize(upload, tmp_path / "clean.mkv", info)
+    with pytest.raises(NotAVideo):
+        await render(upload, tmp_path / "w", ranges=RANGES, max_duration=180, timeout=300, rng=random.Random(1))
+    assert not (tmp_path / "clean.mkv").exists()
+
+
+async def test_the_whitelist_is_what_stops_a_concat_script(clips, tmp_path):
+    # the control: without it ffprobe follows the script to the segment, so the test above is not vacuous
+    shutil.copy(clips["vertical"], tmp_path / "seg.mp4")
+    upload = tmp_path / "input.ts"
+    upload.write_bytes(SCRIPTS["concat"].encode())
+    out = subprocess.run(["ffprobe", "-v", "error", "-show_format", str(upload)], capture_output=True, text=True)
+    assert out.returncode == 0 and "concat" in out.stdout
+
+
+H264_AAC = ["-c:v", "libx264", "-c:a", "aac"]
+CONTAINERS = {
+    "mkv": H264_AAC, "ts": H264_AAC, "3gp": H264_AAC, "m4v": H264_AAC, "mov": H264_AAC,
+    "avi": ["-c:v", "mpeg4", "-c:a", "pcm_s16le"], "mpg": ["-c:v", "mpeg2video", "-c:a", "mp2"],
+}
+
+
+@pytest.mark.parametrize("suffix", CONTAINERS)
+async def test_every_container_the_extensions_allow_still_goes_through(suffix, tmp_path):
+    # the whitelist must not turn away what input_suffix lets in
+    src, dest = tmp_path / f"in.{suffix}", tmp_path / "clean.mkv"
+    subprocess.run(
+        ["ffmpeg", "-hide_banner", "-nostdin", "-y", "-v", "error",
+         "-f", "lavfi", "-i", "testsrc2=size=160x120:rate=25:duration=1", "-f", "lavfi", "-i", "sine=duration=1",
+         *CONTAINERS[suffix], "-pix_fmt", "yuv420p", str(src)],
+        check=True, capture_output=True,
+    )
+    info = await probe_source(src)
+    assert (info.width, info.height, info.has_audio) == (160, 120, True)
+    await normalize(src, dest, info)
+    assert dest.stat().st_size > 0
+
+
+async def test_input_commands_whitelist_the_container_formats(monkeypatch):
+    seen = []
+
+    async def fake_run(cmd, timeout, label, env=None):
+        seen.append(cmd)
+        return b'{"streams": [{"codec_type": "video", "width": 2, "height": 2}], "format": {"duration": "1"}}'
+
+    monkeypatch.setattr(engine, "_run", fake_run)
+    info = await probe_source(Path("up.mp4"))
+    await normalize(Path("up.mp4"), Path("clean.mkv"), info)
+
+    probe_cmd, ffmpeg_cmd = seen
+    for cmd in (probe_cmd, ffmpeg_cmd):
+        assert cmd[cmd.index("-format_whitelist") + 1] == WHITELIST
+        assert cmd.index("-format_whitelist") < cmd.index("-i")  # an input option: it belongs to the upload
+        assert cmd[cmd.index("-i") + 1] == "up.mp4"
+
+
+def test_child_env_drops_the_bot_secrets_and_keeps_the_rest(monkeypatch):
+    for name in ("BOT_TOKEN", "TELEGRAM_API_HASH", "TELEGRAM_API_ID"):
+        monkeypatch.setenv(name, "secret")
+    monkeypatch.setenv("UNIQBOT_KEEP_ME", "1")
+
+    env = child_env()
+
+    assert not {"BOT_TOKEN", "TELEGRAM_API_HASH", "TELEGRAM_API_ID"} & {name.upper() for name in env}
+    assert env["UNIQBOT_KEEP_ME"] == "1" and "PATH" in {name.upper() for name in env}
+    assert child_env(PYTHONUTF8="1")["PYTHONUTF8"] == "1"
+
+
+async def test_child_processes_run_without_the_bot_secrets(monkeypatch):
+    for name in ("BOT_TOKEN", "TELEGRAM_API_HASH", "TELEGRAM_API_ID"):
+        monkeypatch.setenv(name, "secret")
+    code = "import os; print([n for n in ('BOT_TOKEN', 'TELEGRAM_API_HASH', 'TELEGRAM_API_ID') if n in os.environ])"
+
+    assert (await engine._run([sys.executable, "-c", code], 30, "child")).strip() == b"[]"
+
+
 async def test_run_engine_command_line(monkeypatch):
     seen = {}
 
@@ -188,6 +296,7 @@ async def test_run_engine_command_line(monkeypatch):
     assert cmd[cmd.index("--workers") + 1] == "1" and "--no-qa" in cmd and "--no-progress" in cmd
     assert "--no-preflight" not in cmd
     assert seen["timeout"] == 12 and seen["env"]["PYTHONUTF8"] == "1"
+    assert "BOT_TOKEN" not in seen["env"]
 
 
 @pytest.mark.parametrize(
