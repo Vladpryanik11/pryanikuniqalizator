@@ -550,7 +550,7 @@ def test_deploy_ships_only_committed_code():
 ### Task 10: Первый запуск на VPS и приёмка (только после «да» владельца)
 
 - [ ] **Step 1:** От владельца: токен нового бота (@BotFather), `api_id`/`api_hash` (my.telegram.org), канал (`CHANNEL_ID` — `@username` или `-100…`, `CHANNEL_URL`), бот добавлен админом канала без прав на публикацию, его Telegram ID для `ADMIN_IDS`. Он сам заполняет локальный `.env` по `.env.example`; значения в чат и в коммиты не попадают.
-- [ ] **Step 2:** `.venv\Scripts\python -m uniqbot logout-cloud` → печатает `True` (бот вышел из облачного Bot API; после этого он работает только через локальный сервер).
+- [ ] **Step 2:** `.venv\Scripts\python -m uniqbot logout-cloud` → печатает «Logged out of the cloud Bot API. The bot can start on the local server now; it cannot go back to the cloud for 10 minutes.» и завершается с кодом 0 (при ошибке — сообщение в stderr и код 1). Бот вышел из облачного Bot API и дальше работает только через локальный сервер; для локальной отладки в облачном режиме после logOut — отдельный dev-токен, не боевой.
 - [ ] **Step 3:** Заполнить `scripts/server.env` по примеру; `powershell -ExecutionPolicy Bypass -File scripts\setup-server.ps1` → на сервере есть `/opt/uniqbot/.env` (600) и `/opt/uniqbot/data` (101:101).
 - [ ] **Step 4:** `scripts\deploy.ps1 -Test` из инструмента PowerShell без `*>`/`2>&1` (как в Уникализаторе) → тестовая цель собрана, `uniqbot` запущен, рестартов нет, в логах «Start polling».
 - [ ] **Step 5:** Зафиксировать digest образа: на сервере `docker inspect --format '{{index .RepoDigests 0}}' aiogram/telegram-bot-api:latest` → подставить `aiogram/telegram-bot-api@sha256:…` в `docker-compose.yml`, commit `build: pin telegram-bot-api image`, `scripts\deploy.ps1`.

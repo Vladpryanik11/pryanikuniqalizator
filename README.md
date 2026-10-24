@@ -54,7 +54,10 @@ py -3.12 -m venv .venv
 1. Подготовить: токен нового бота, `api_id` и `api_hash`, канал, бота в администраторах канала без прав на
    публикацию, свой Telegram id для `ADMIN_IDS`. Заполнить локальный `.env`.
 2. Один раз вывести бота из облачного Bot API (после этого он работает только через локальный сервер):
-   `.venv\Scripts\python -m uniqbot logout-cloud` — должно напечатать `True`.
+   `.venv\Scripts\python -m uniqbot logout-cloud` — при успехе печатает «Logged out of the cloud Bot API. The bot
+   can start on the local server now; it cannot go back to the cloud for 10 minutes.» и завершается с кодом 0; при
+   ошибке печатает её в stderr и завершается с кодом 1. После выхода из облака для локальной отладки в облачном
+   режиме нужен отдельный dev-токен (другой бот), а не боевой.
 3. Скопировать `scripts/server.env.example` в `scripts/server.env` (в `.gitignore`), указать `UNIQBOT_HOST`,
    `UNIQBOT_KEY` и при необходимости `UNIQBOT_DIR`. Затем
    `powershell -ExecutionPolicy Bypass -File scripts\setup-server.ps1` — создаёт `data/` (владелец 101:101) и
