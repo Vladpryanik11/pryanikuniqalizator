@@ -49,6 +49,7 @@ BC_CANCELLED = "Рассылка отменена."
 BC_BUSY = "Рассылка уже идёт, дождись отчёта."
 BC_PROGRESS = "Рассылка: {done} из {total}…"
 BC_REPORT = "Рассылка завершена. Доставлено: {sent}, заблокировали бота: {blocked}, ошибок: {failed}."
+BC_CRASHED = "Рассылка прервалась из-за ошибки. Доставлено: {sent}, заблокировали бота: {blocked}, ошибок: {failed}. Подробности в логах бота."
 
 
 def _max_min(settings: Settings) -> int:
@@ -93,3 +94,7 @@ def bc_progress(done: int, total: int) -> str:
 
 def bc_report(sent: int, blocked: int, failed: int) -> str:
     return BC_REPORT.format(sent=sent, blocked=blocked, failed=failed)
+
+
+def bc_crashed(sent: int, blocked: int, failed: int) -> str:
+    return BC_CRASHED.format(sent=sent, blocked=blocked, failed=failed)

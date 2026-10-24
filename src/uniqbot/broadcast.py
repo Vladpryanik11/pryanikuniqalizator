@@ -38,14 +38,17 @@ async def send_broadcast(
     rate_per_sec: float = 20,
     on_progress: Progress | None = None,
     sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+    result: BroadcastResult | None = None,
 ) -> BroadcastResult:
     """Copy the post (`chat_id`, `message_id`) to every user of `audience`, at most `rate_per_sec` a second.
 
     RetryAfter waits and tries the same user again, Forbidden marks the user as blocked, any other Telegram error
     is a failure. The counters go to the `broadcasts` row at every progress point (and `on_progress` is told how far
-    it is); at the end the row is `done`.
+    it is); at the end the row is `done`. The counters live in `result` (the caller's, if given, updated in place), so
+    after a crash the caller still knows how far the send got.
     """
-    result = BroadcastResult()
+    if result is None:
+        result = BroadcastResult()
     total = len(audience)
     pause = 1 / rate_per_sec
 

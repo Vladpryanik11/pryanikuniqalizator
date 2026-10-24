@@ -22,7 +22,7 @@ from aiogram.types import (
 )
 
 from . import repo, texts
-from .broadcast import send_broadcast
+from .broadcast import BroadcastResult, send_broadcast
 from .db import BroadcastStatus, utcnow
 from .deps import Deps
 from .export import users_csv
@@ -155,7 +155,12 @@ async def on_broadcast_go(callback: CallbackQuery, bot: Bot, deps: Deps, state: 
 async def _run_broadcast(
     bot: Bot, deps: Deps, admin_id: int, progress_id: int, post: dict, audience: list[int]
 ) -> None:
-    """The background part: the question with the buttons turns into the progress, the report is a new message."""
+    """The background part: the question with the buttons turns into the progress, the report is a new message.
+
+    A crash (anything but a cancel) is logged, the row is marked `interrupted` with the counts reached, and the admin is told.
+    """
+    result = BroadcastResult()  # filled in by send_broadcast as it goes, so a crash leaves the counts behind
+    bid: int | None = None
     try:
         bid = await repo.create_broadcast(
             deps.sessions,
@@ -171,7 +176,7 @@ async def _run_broadcast(
 
         await on_progress(0, len(audience))
         markup = InlineKeyboardMarkup.model_validate(post["reply_markup"]) if post["reply_markup"] else None
-        result = await send_broadcast(
+        await send_broadcast(
             bot,
             deps.sessions,
             bid,
@@ -180,10 +185,32 @@ async def _run_broadcast(
             reply_markup=markup,
             audience=audience,
             on_progress=on_progress,
+            result=result,
         )
+    except Exception:  # a cancel (shutdown) is not one: the row then stays `running` until the next start marks it
+        log.exception("broadcast %s crashed", bid)
+        await _report_crash(bot, deps, admin_id, bid, result)
+        return
+    try:
         await bot.send_message(admin_id, texts.bc_report(result.sent, result.blocked, result.failed))
     except Exception:
-        log.exception("broadcast failed")  # the row stays `running` until the next start marks it interrupted
+        log.exception("broadcast %s: the report was not delivered", bid)
+
+
+async def _report_crash(bot: Bot, deps: Deps, admin_id: int, bid: int | None, result: BroadcastResult) -> None:
+    """Best effort, each step on its own: the database or Telegram may be what broke."""
+    if bid is not None:
+        try:
+            await repo.update_broadcast(
+                deps.sessions, bid, sent=result.sent, blocked=result.blocked, failed=result.failed,
+                status=BroadcastStatus.INTERRUPTED, finished=True,
+            )
+        except Exception:
+            log.exception("broadcast %s: could not mark it interrupted", bid)
+    try:
+        await bot.send_message(admin_id, texts.bc_crashed(result.sent, result.blocked, result.failed))
+    except Exception:
+        log.exception("broadcast %s: the admin was not told about the crash", bid)
 
 
 def _is_post(message: Message) -> bool:

@@ -74,6 +74,24 @@ async def test_broadcast_paces_and_uses_copy_message(env):
     assert env.sleeps == [0.05]  # 20 a second: one gap between the two sends, none after the last
 
 
+async def test_broadcast_counters_are_visible_to_the_caller_while_it_runs(env):
+    seen = BroadcastResult()  # given by the caller, updated in place: what is reached survives a crash
+    result, _ = await env.run([1, 2, 3], result=seen)
+    assert result is seen and seen == BroadcastResult(sent=3, blocked=0, failed=0)
+
+
+async def test_broadcast_counters_reached_before_a_crash_are_kept(env, monkeypatch):
+    seen = BroadcastResult()
+
+    async def broken(*args, **kwargs):
+        raise RuntimeError("database is gone")
+
+    monkeypatch.setattr(repo, "update_broadcast", broken)  # the final save fails after all sends
+    with pytest.raises(RuntimeError, match="database is gone"):
+        await env.run([1, 2], result=seen)
+    assert seen == BroadcastResult(sent=2, blocked=0, failed=0)
+
+
 async def test_broadcast_pace_follows_the_rate(env):
     await env.run([1, 2, 3], rate_per_sec=4)
     assert env.sleeps == [0.25, 0.25]

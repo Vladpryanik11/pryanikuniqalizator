@@ -294,6 +294,78 @@ async def test_a_second_broadcast_command_drops_the_first_post(env):
     assert env.deps.broadcast_task is None and env.bot.called("copy_message") == []
 
 
+async def test_a_crashed_broadcast_is_marked_interrupted_and_reported(env, monkeypatch, caplog):
+    await make_users(env, blocked=())
+    await ask_and_post(env)
+    real_update, calls = repo.update_broadcast, []
+
+    async def flaky(sessions, bid, **kwargs):
+        calls.append(kwargs)
+        if len(calls) == 1:  # the final save of the counters; the best-effort one after the crash goes through
+            raise RuntimeError("database is locked")
+        await real_update(sessions, bid, **kwargs)
+
+    monkeypatch.setattr(repo, "update_broadcast", flaky)
+
+    with caplog.at_level("ERROR"):
+        await on_broadcast_go(press(env, "bc:go"), env.bot, env.deps, env.state)
+        await env.deps.broadcast_task
+
+    assert env.deps.broadcast_task.done() and env.deps.broadcast_task.exception() is None
+    [row] = await broadcast_rows(env)
+    assert (row.status, row.sent, row.blocked, row.failed) == (BroadcastStatus.INTERRUPTED, 3, 0, 0)
+    assert row.finished_at is not None
+    assert env.bot.texts(ADMIN.id) == [texts.BC_CRASHED.format(sent=3, blocked=0, failed=0)]  # and no "done" report
+    assert any(r.exc_info and "database is locked" in str(r.exc_info[1]) and str(row.id) in r.getMessage()
+               for r in caplog.records)  # logged with the stack and the broadcast id
+
+    # the crash does not block the next one
+    monkeypatch.setattr(repo, "update_broadcast", real_update)
+    env.bot.calls.clear()
+    await ask_and_post(env)
+    await on_broadcast_go(press(env, "bc:go"), env.bot, env.deps, env.state)
+    await env.deps.broadcast_task
+    assert [r.status for r in await broadcast_rows(env)] == [BroadcastStatus.INTERRUPTED, BroadcastStatus.DONE]
+    assert env.bot.texts(ADMIN.id) == [texts.BC_REPORT.format(sent=3, blocked=0, failed=0)]
+
+
+async def test_a_crash_while_sending_keeps_the_counts_reached(env, monkeypatch):
+    await make_users(env, blocked=())
+    await ask_and_post(env)
+
+    async def broken(sessions, tg_id, blocked):
+        raise RuntimeError("disk I/O error")
+
+    env.bot.copy_errors[2] = [
+        TelegramForbiddenError(
+            method=CopyMessage(chat_id=2, from_chat_id=1, message_id=3), message="Forbidden: bot was blocked by the user"
+        )
+    ]
+    monkeypatch.setattr(repo, "set_blocked", broken)  # user 1 is sent, user 2 blocked the bot and its mark fails
+
+    await on_broadcast_go(press(env, "bc:go"), env.bot, env.deps, env.state)
+    await env.deps.broadcast_task
+
+    [row] = await broadcast_rows(env)
+    assert (row.status, row.sent, row.blocked, row.failed) == (BroadcastStatus.INTERRUPTED, 1, 1, 0)
+    assert env.bot.texts(ADMIN.id) == [texts.BC_CRASHED.format(sent=1, blocked=1, failed=0)]
+
+
+async def test_a_crash_before_the_row_exists_still_tells_the_admin(env, monkeypatch):
+    await make_users(env)
+    await ask_and_post(env)
+
+    async def broken(*args, **kwargs):
+        raise RuntimeError("database is gone")
+
+    monkeypatch.setattr(repo, "create_broadcast", broken)
+
+    await on_broadcast_go(press(env, "bc:go"), env.bot, env.deps, env.state)
+    await env.deps.broadcast_task
+
+    assert env.bot.texts(ADMIN.id) == [texts.BC_CRASHED.format(sent=0, blocked=0, failed=0)]
+
+
 def test_texts_of_the_admin_side():
     assert texts.BC_ASK_POST == "Пришли пост для рассылки. /cancel — отмена."
     assert texts.BC_GO == "Отправить" and texts.BC_CANCEL == "Отмена"
@@ -301,6 +373,13 @@ def test_texts_of_the_admin_side():
     assert texts.BC_BUSY == "Рассылка уже идёт, дождись отчёта."
     assert texts.bc_progress(100, 250) == "Рассылка: 100 из 250…"
     assert texts.bc_report(5, 2, 1) == "Рассылка завершена. Доставлено: 5, заблокировали бота: 2, ошибок: 1."
+    assert texts.BC_CRASHED == (
+        "Рассылка прервалась из-за ошибки. Доставлено: {sent}, заблокировали бота: {blocked}, ошибок: {failed}. "
+        "Подробности в логах бота."
+    )
+    assert texts.bc_crashed(5, 2, 1) == (
+        "Рассылка прервалась из-за ошибки. Доставлено: 5, заблокировали бота: 2, ошибок: 1. Подробности в логах бота."
+    )
 
 
 # --- the router, run by a real dispatcher ---
