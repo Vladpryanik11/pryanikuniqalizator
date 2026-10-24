@@ -34,6 +34,58 @@ def test_unknown_key_in_ranges_is_rejected(tmp_path):
         load_ranges(path)
 
 
+def ranges_with(tmp_path, **changes):
+    """load_ranges over the repo config with some keys replaced."""
+    data = yaml.safe_load((PROJECT_ROOT / "config" / "uniq.yaml").read_text(encoding="utf-8")) | changes
+    path = tmp_path / "uniq.yaml"
+    path.write_text(yaml.safe_dump(data), encoding="utf-8")
+    return load_ranges(path)
+
+
+def rejected(tmp_path, field, **changes):
+    with pytest.raises(ValidationError) as e:
+        ranges_with(tmp_path, **changes)
+    assert field in str(e.value)  # the error says which field is wrong
+
+
+@pytest.mark.parametrize("field", ["brightness", "contrast", "gamma", "saturation"])
+def test_span_low_must_not_exceed_high(tmp_path, field):
+    rejected(tmp_path, field, **{field: {"low": 1.05, "high": 1.01}})
+    assert ranges_with(tmp_path, **{field: {"low": 1.02, "high": 1.02}})  # a single value is fine
+
+
+@pytest.mark.parametrize("field", ["rates", "noise"])
+def test_rates_and_noise_must_not_be_empty(tmp_path, field):
+    rejected(tmp_path, field, **{field: []})
+
+
+@pytest.mark.parametrize("bad", [0.5, 0.3, 0, -1.04, 2.01, 1.0])
+def test_every_rate_must_be_in_the_engines_range_and_move_the_clip(tmp_path, bad):
+    # (0.5, 2.0] is what the engine's video.speed accepts; 1.0 would change nothing
+    rejected(tmp_path, "rates", rates=[0.96, bad])
+
+
+def test_rates_at_the_edges_of_the_range_are_fine(tmp_path):
+    assert ranges_with(tmp_path, rates=[0.51, 2.0]).rates == [0.51, 2.0]
+
+
+@pytest.mark.parametrize("bad", [-1, 101, 1000])
+def test_noise_values_are_0_to_100(tmp_path, bad):
+    rejected(tmp_path, "noise", noise=[4, bad])
+    assert ranges_with(tmp_path, noise=[0, 100]).noise == [0, 100]
+
+
+@pytest.mark.parametrize("bad", [0, -0.05, 0.11, 1])
+def test_crop_strength_is_above_0_and_at_most_a_tenth(tmp_path, bad):
+    rejected(tmp_path, "crop_max_strength", crop_max_strength=bad)
+    assert ranges_with(tmp_path, crop_max_strength=0.001).crop_max_strength == 0.001
+
+
+@pytest.mark.parametrize("bad", [0, -180])
+def test_max_output_must_be_positive(tmp_path, bad):
+    rejected(tmp_path, "max_output_sec", max_output_sec=bad)
+
+
 def test_pick_params_stay_in_ranges():
     for seed in range(200):
         p = pick_params(random.Random(seed), RANGES, duration_sec=10)

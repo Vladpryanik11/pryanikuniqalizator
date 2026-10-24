@@ -6,27 +6,48 @@ from importlib import resources
 from pathlib import Path
 
 import yaml
-from pydantic import BaseModel, ConfigDict
+from typing import Annotated
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 PROFILE_NAME = "uniqbot_order"
+RATE_MIN_EXCLUSIVE, RATE_MAX = 0.5, 2.0  # what the engine's video.speed accepts: (0.5, 2.0]
 
 
 class Span(BaseModel):
     low: float
     high: float
 
+    @model_validator(mode="after")
+    def _ordered(self) -> "Span":
+        if self.low > self.high:
+            raise ValueError(f"low ({self.low}) is above high ({self.high})")
+        return self
+
 
 class UniqRanges(BaseModel):
+    """config/uniq.yaml; a value the engine would reject or that changes nothing fails at load, not in an order."""
+
     model_config = ConfigDict(extra="forbid")
 
-    crop_max_strength: float
+    crop_max_strength: float = Field(gt=0, le=0.10)
     brightness: Span
     contrast: Span
     gamma: Span
     saturation: Span
-    noise: list[int]
-    rates: list[float]
-    max_output_sec: float
+    noise: list[Annotated[int, Field(ge=0, le=100)]] = Field(min_length=1)
+    rates: list[float] = Field(min_length=1)
+    max_output_sec: float = Field(gt=0)
+
+    @field_validator("rates")
+    @classmethod
+    def _rates_shift_the_clip_within_the_engines_range(cls, rates: list[float]) -> list[float]:
+        for rate in rates:
+            if not RATE_MIN_EXCLUSIVE < rate <= RATE_MAX:
+                raise ValueError(f"rate {rate} is outside ({RATE_MIN_EXCLUSIVE}, {RATE_MAX}]")
+            if rate == 1.0:
+                raise ValueError("rate 1.0 would not change the speed")
+        return rates
 
 
 @dataclass(frozen=True)
